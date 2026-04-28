@@ -10,24 +10,35 @@
         #info {
             position: absolute; top: 10px; left: 10px; color: white;
             pointer-events: none; text-shadow: 1px 1px 2px black;
+            line-height: 1.7;
         }
         #video-container { position: absolute; bottom: 10px; right: 10px; width: 160px; height: 120px; border: 2px solid #444; }
         video { transform: scaleX(-1); width: 100%; height: 100%; object-fit: cover; }
+        #music-btn {
+            position: absolute; top: 10px; right: 10px;
+            background: rgba(255,255,255,0.1); color: white;
+            border: 1px solid rgba(255,255,255,0.3);
+            padding: 8px 16px; border-radius: 20px;
+            cursor: pointer; font-size: 13px; backdrop-filter: blur(4px);
+        }
     </style>
 </head>
 <body>
 
     <div id="info">
         Jitarth Satija - Gesture Control System<br>
-        Pinch: Expand | Open Palm: Change Shape
+        Pinch → Zoom OUT | Unpinch → Zoom IN<br>
+        1 Finger point → Change Shape<br>
+        Hand move → Tune music
     </div>
     <div id="video-container">
         <video id="input_video"></video>
     </div>
+    <button id="music-btn" onclick="startMusic()">🎵 Music Start</button>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"><\/script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"><\/script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"><\/script>
 
     <script>
         const videoElement = document.getElementById('input_video');
@@ -36,11 +47,150 @@
         let currentShape = 0;
         const shapes = ['fireworks', 'heart', 'flower', 'spiral', 'wave', 'galaxy', 'saturn'];
 
-        // Init Three.js
+        let currentZoom = 5;
+        const ZOOM_IN_Z  = 3;
+        const ZOOM_OUT_Z = 9;
+        let lastShapeChange = 0;
+        const SHAPE_COOLDOWN = 1200;
+
+        // ─── WEB AUDIO ENGINE ──────────────────────────────────
+        let audioCtx = null;
+        let masterGain, reverbNode, drone1, drone2, arpOsc, lfoOsc;
+        let musicStarted = false;
+
+        // Pentatonic scale frequencies (A minor pentatonic)
+        const pentatonic = [220, 261.63, 293.66, 349.23, 392, 440, 523.25, 587.33, 659.25];
+        let arpIndex = 0;
+        let arpInterval = null;
+
+        function createReverb(ctx) {
+            const convolver = ctx.createConvolver();
+            const length = ctx.sampleRate * 3;
+            const impulse = ctx.createBuffer(2, length, ctx.sampleRate);
+            for (let ch = 0; ch < 2; ch++) {
+                const data = impulse.getChannelData(ch);
+                for (let i = 0; i < length; i++) {
+                    data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 2.5);
+                }
+            }
+            convolver.buffer = impulse;
+            return convolver;
+        }
+
+        function startMusic() {
+            if (musicStarted) return;
+            musicStarted = true;
+            document.getElementById('music-btn').style.display = 'none';
+
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+            masterGain = audioCtx.createGain();
+            masterGain.gain.value = 0.5;
+            masterGain.connect(audioCtx.destination);
+
+            reverbNode = createReverb(audioCtx);
+            reverbNode.connect(masterGain);
+
+            const dryGain = audioCtx.createGain();
+            dryGain.gain.value = 0.4;
+            dryGain.connect(masterGain);
+
+            const wetGain = audioCtx.createGain();
+            wetGain.gain.value = 0.6;
+            wetGain.connect(reverbNode);
+
+            // Drone 1 — deep bass
+            drone1 = audioCtx.createOscillator();
+            drone1.type = 'sine';
+            drone1.frequency.value = 55;
+            const d1g = audioCtx.createGain();
+            d1g.gain.value = 0.3;
+            drone1.connect(d1g);
+            d1g.connect(dryGain);
+            d1g.connect(wetGain);
+            drone1.start();
+
+            // Drone 2 — mid shimmer
+            drone2 = audioCtx.createOscillator();
+            drone2.type = 'triangle';
+            drone2.frequency.value = 110.05;
+            const d2g = audioCtx.createGain();
+            d2g.gain.value = 0.15;
+            drone2.connect(d2g);
+            d2g.connect(dryGain);
+            d2g.connect(wetGain);
+            drone2.start();
+
+            // LFO for drone wobble
+            lfoOsc = audioCtx.createOscillator();
+            lfoOsc.frequency.value = 0.18;
+            const lfoGain = audioCtx.createGain();
+            lfoGain.gain.value = 3;
+            lfoOsc.connect(lfoGain);
+            lfoGain.connect(drone1.frequency);
+            lfoOsc.start();
+
+            // Arpeggio
+            startArp(dryGain, wetGain);
+        }
+
+        function startArp(dryGain, wetGain) {
+            function playNote() {
+                if (!audioCtx) return;
+                const osc = audioCtx.createOscillator();
+                const env = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.value = pentatonic[arpIndex % pentatonic.length];
+                env.gain.setValueAtTime(0, audioCtx.currentTime);
+                env.gain.linearRampToValueAtTime(0.08, audioCtx.currentTime + 0.05);
+                env.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1.2);
+                osc.connect(env);
+                env.connect(dryGain);
+                env.connect(wetGain);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 1.3);
+                arpIndex++;
+            }
+            playNote();
+            arpInterval = setInterval(playNote, 600);
+        }
+
+        function updateMusicFromHand(x, y) {
+            if (!audioCtx || !drone1) return;
+            // x controls arp speed (0.3s to 1.2s)
+            const arpSpeed = 300 + x * 900;
+            clearInterval(arpInterval);
+
+            // y controls drone pitch
+            const basePitch = 40 + (1 - y) * 40;
+            drone1.frequency.linearRampToValueAtTime(basePitch, audioCtx.currentTime + 0.5);
+            drone2.frequency.linearRampToValueAtTime(basePitch * 2.001, audioCtx.currentTime + 0.5);
+
+            // restart arp at new speed
+            const dg = audioCtx.createGain(); dg.gain.value = 0.4; dg.connect(masterGain);
+            const wg = audioCtx.createGain(); wg.gain.value = 0.6; wg.connect(reverbNode);
+            arpInterval = setInterval(() => {
+                const osc = audioCtx.createOscillator();
+                const env = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.value = pentatonic[arpIndex % pentatonic.length];
+                env.gain.setValueAtTime(0, audioCtx.currentTime);
+                env.gain.linearRampToValueAtTime(0.08, audioCtx.currentTime + 0.05);
+                env.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1.2);
+                osc.connect(env);
+                env.connect(dg);
+                env.connect(wg);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 1.3);
+                arpIndex++;
+            }, arpSpeed);
+        }
+        // ────────────────────────────────────────────────────────
+
         function initThree() {
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.z = 5;
+            camera.position.z = currentZoom;
 
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -49,34 +199,27 @@
             geometry = new THREE.BufferGeometry();
             const positions = new Float32Array(particleCount * 3);
             const colors = new Float32Array(particleCount * 3);
-
             for (let i = 0; i < particleCount * 3; i++) {
                 positions[i] = (Math.random() - 0.5) * 10;
                 colors[i] = Math.random();
             }
-
             geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
             geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
             const material = new THREE.PointsMaterial({
-                size: 0.05,
-                vertexColors: true,
-                transparent: true,
+                size: 0.05, vertexColors: true, transparent: true,
                 blending: THREE.AdditiveBlending
             });
-
             particles = new THREE.Points(geometry, material);
             scene.add(particles);
         }
 
-        // Mathematical Shape Generators
         function updateShape(type, strength = 1) {
             const positions = geometry.attributes.position.array;
             for (let i = 0; i < particleCount; i++) {
                 let x, y, z;
                 const t = i / particleCount * Math.PI * 2;
                 const r = 2 + Math.random() * 0.5 * strength;
-
                 if (type === 'heart') {
                     x = 16 * Math.pow(Math.sin(t), 3) / 10;
                     y = (13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t)) / 10;
@@ -84,88 +227,86 @@
                 } else if (type === 'flower') {
                     const petals = 5;
                     const radius = 2 * Math.cos(petals * t);
-                    x = radius * Math.cos(t);
-                    y = radius * Math.sin(t);
+                    x = radius * Math.cos(t); y = radius * Math.sin(t);
                     z = (Math.random() - 0.5) * strength;
                 } else if (type === 'spiral') {
                     const radius = 0.1 * i;
-                    x = radius * Math.cos(t * 5);
-                    y = radius * Math.sin(t * 5);
+                    x = radius * Math.cos(t * 5); y = radius * Math.sin(t * 5);
                     z = (i / particleCount) * 5;
                 } else if (type === 'wave') {
                     x = (i / particleCount) * 5 - 2.5;
                     y = Math.sin(x * 5 + performance.now() * 0.002);
                     z = Math.cos(x * 5);
                 } else if (type === 'galaxy') {
-                    const arms = 3;
-                    const angle = t * arms;
-                    const radius = Math.sqrt(i) * 0.1;
-                    x = Math.cos(angle) * radius;
-                    y = Math.sin(angle) * radius;
+                    const arms = 3, angle = t * arms, radius = Math.sqrt(i) * 0.1;
+                    x = Math.cos(angle) * radius; y = Math.sin(angle) * radius;
                     z = (Math.random() - 0.5) * 0.5;
                 } else if (type === 'saturn') {
-                    if (i < particleCount * 0.6) { // Planet
+                    if (i < particleCount * 0.6) {
                         const phi = Math.acos(-1 + (2 * i) / (particleCount * 0.6));
                         const theta = Math.sqrt(particleCount * 0.6 * Math.PI) * phi;
                         x = Math.cos(theta) * Math.sin(phi) * 1.5;
                         y = Math.sin(theta) * Math.sin(phi) * 1.5;
                         z = Math.cos(phi) * 1.5;
-                    } else { // Rings
+                    } else {
                         const ringR = 2.5 + Math.random() * 1.5;
                         x = Math.cos(t * 50) * ringR;
                         y = Math.sin(t * 50) * ringR * 0.3;
                         z = Math.sin(t * 50) * ringR * 0.5;
                     }
-                } else { // Fireworks / Default
+                } else {
                     x = (Math.random() - 0.5) * 10 * strength;
                     y = (Math.random() - 0.5) * 10 * strength;
                     z = (Math.random() - 0.5) * 10 * strength;
                 }
-
-                positions[i * 3] += (x - positions[i * 3]) * 0.1;
+                positions[i * 3]     += (x - positions[i * 3])     * 0.1;
                 positions[i * 3 + 1] += (y - positions[i * 3 + 1]) * 0.1;
                 positions[i * 3 + 2] += (z - positions[i * 3 + 2]) * 0.1;
             }
             geometry.attributes.position.needsUpdate = true;
         }
 
-        // Hand Tracking Logic
+        function isOneFingerPoint(lm) {
+            const indexUp  = lm[8].y  < lm[6].y;
+            const middleUp = lm[12].y < lm[10].y;
+            const ringUp   = lm[16].y < lm[14].y;
+            const pinkyUp  = lm[20].y < lm[18].y;
+            const pointingForward = (lm[8].z - lm[5].z) < -0.04;
+            return indexUp && !middleUp && !ringUp && !pinkyUp && pointingForward;
+        }
+
         const hands = new Hands({
             locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
         });
-
-        hands.setOptions({
-            maxNumHands: 1,
-            modelComplexity: 1,
-            minDetectionConfidence: 0.5,
-            minTrackingConfidence: 0.5
-        });
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
 
         hands.onResults((results) => {
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 const landmarks = results.multiHandLandmarks[0];
-                
-                // Pinch detection (Thumb tip to Index tip)
                 const dx = landmarks[4].x - landmarks[8].x;
                 const dy = landmarks[4].y - landmarks[8].y;
-                const distance = Math.sqrt(dx*dx + dy*dy);
-                
-                // Interaction
-                const strength = distance < 0.05 ? 5 : 1; 
-                
-                // Palm Open to change shape
-                const isPalmOpen = landmarks[12].y < landmarks[9].y;
-                if (isPalmOpen && Math.random() > 0.98) {
+                const pinchDist = Math.sqrt(dx * dx + dy * dy);
+                const isPinched = pinchDist < 0.05;
+
+                if (isPinched) { currentZoom += (ZOOM_OUT_Z - currentZoom) * 0.08; }
+                else           { currentZoom += (ZOOM_IN_Z  - currentZoom) * 0.08; }
+                camera.position.z = currentZoom;
+
+                const now = Date.now();
+                if (isOneFingerPoint(landmarks) && (now - lastShapeChange) > SHAPE_COOLDOWN) {
                     currentShape = (currentShape + 1) % shapes.length;
+                    lastShapeChange = now;
                 }
 
-                updateShape(shapes[currentShape], strength);
-                
-                // Dynamic Color change
+                updateShape(shapes[currentShape], 1);
+
+                // Update music with hand position
+                updateMusicFromHand(landmarks[9].x, landmarks[9].y);
+
                 const colors = geometry.attributes.color.array;
-                for(let i=0; i<colors.length; i+=3) {
-                    colors[i] = landmarks[8].x; // Red based on hand X
-                    colors[i+1] = landmarks[8].y; // Green based on hand Y
+                for (let i = 0; i < colors.length; i += 3) {
+                    colors[i]   = landmarks[8].x;
+                    colors[i+1] = landmarks[8].y;
                     colors[i+2] = 1 - landmarks[8].x;
                 }
                 geometry.attributes.color.needsUpdate = true;
@@ -175,11 +316,8 @@
         });
 
         const cameraFeed = new Camera(videoElement, {
-            onFrame: async () => {
-                await hands.send({ image: videoElement });
-            },
-            width: 640,
-            height: 480
+            onFrame: async () => { await hands.send({ image: videoElement }); },
+            width: 640, height: 480
         });
         cameraFeed.start();
 
@@ -197,6 +335,6 @@
 
         initThree();
         animate();
-    </script>
+    <\/script>
 </body>
 </html>
