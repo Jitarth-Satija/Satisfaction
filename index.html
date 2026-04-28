@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Camera Firework Zoom</title>
+    <title>Laser Camera App</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
         video {
             position: absolute;
             top: 50%;
@@ -14,7 +14,7 @@
             min-width: 100%;
             min-height: 100%;
             z-index: 1;
-            transition: transform 0.1s ease-out;
+            filter: brightness(0.7) contrast(1.2);
         }
         canvas {
             position: absolute;
@@ -22,126 +22,134 @@
             left: 0;
             z-index: 2;
             pointer-events: none;
+            mix-blend-mode: screen;
         }
         #ui {
             position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
+            top: 20px;
+            left: 20px;
             z-index: 3;
-            color: white;
-            background: rgba(0,0,0,0.5);
-            padding: 10px;
-            border-radius: 5px;
+            color: #0ff;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            font-size: 12px;
+            background: rgba(0,0,0,0.4);
+            padding: 8px;
+            border-left: 3px solid #0ff;
         }
     </style>
 </head>
 <body>
 
 <video id="camera" autoplay playsinline></video>
-<canvas id="fireworks"></canvas>
-<div id="ui">Pinch to Zoom | Tap for Fireworks</div>
+<canvas id="laserCanvas"></canvas>
+<div id="ui">Laser System Active | Move Hand to Pattern | Pinch to Zoom</div>
 
 <script>
     const video = document.getElementById('camera');
-    const canvas = document.getElementById('fireworks');
+    const canvas = document.getElementById('laserCanvas');
     const ctx = canvas.getContext('2d');
 
     let zoomLevel = 1;
     let initialDist = 0;
+    let pointerX = 0;
+    let pointerY = 0;
+    let hue = 0;
+    let isMoving = false;
 
-    // Initialize Camera
     async function startCamera() {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } 
+            });
             video.srcObject = stream;
         } catch (err) {
-            console.error("Camera access denied", err);
-            document.getElementById('ui').innerText = "Camera Access Denied";
+            document.getElementById('ui').innerText = "System Error: Camera Access Denied";
         }
     }
 
-    // Handle Resize
     function resize() {
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
     }
-    window.addEventListener('resize', resize);
-    resize();
 
-    // Pinch to Zoom Logic
+    // Input Handling
     window.addEventListener('touchstart', (e) => {
         if (e.touches.length === 2) {
             initialDist = Math.hypot(
                 e.touches[0].pageX - e.touches[1].pageX,
                 e.touches[0].pageY - e.touches[1].pageY
             );
-        } else if (e.touches.length === 1) {
-            createFirework(e.touches[0].pageX, e.touches[0].pageY);
+        } else {
+            isMoving = true;
+            updatePointer(e.touches[0]);
         }
     });
 
     window.addEventListener('touchmove', (e) => {
         if (e.touches.length === 2) {
+            // Zoom Logic
             const currentDist = Math.hypot(
                 e.touches[0].pageX - e.touches[1].pageX,
                 e.touches[0].pageY - e.touches[1].pageY
             );
-            
             const diff = currentDist / initialDist;
-            zoomLevel = Math.max(1, Math.min(5, zoomLevel * diff));
+            zoomLevel = Math.max(1, Math.min(8, zoomLevel * (diff > 1 ? 1.05 : 0.95)));
             video.style.transform = `translate(-50%, -50%) scale(${zoomLevel})`;
             initialDist = currentDist;
+        } else {
+            updatePointer(e.touches[0]);
         }
     });
 
-    // Firework Logic
-    const particles = [];
-    class Particle {
-        constructor(x, y) {
-            this.x = x;
-            this.y = y;
-            this.size = Math.random() * 3 + 1;
-            this.speedX = (Math.random() - 0.5) * 10;
-            this.speedY = (Math.random() - 0.5) * 10;
-            this.color = `hsl(${Math.random() * 360}, 100%, 50%)`;
-            this.alpha = 1;
-        }
-        update() {
-            this.x += this.speedX;
-            this.y += this.speedY;
-            this.alpha -= 0.02;
-        }
-        draw() {
-            ctx.globalAlpha = this.alpha;
-            ctx.fillStyle = this.color;
-            ctx.beginPath();
-            ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-            ctx.fill();
-        }
+    window.addEventListener('touchend', () => { isMoving = false; });
+
+    function updatePointer(touch) {
+        pointerX = touch.pageX;
+        pointerY = touch.pageY;
     }
 
-    function createFirework(x, y) {
-        for (let i = 0; i < 30; i++) {
-            particles.push(new Particle(x, y));
-        }
-    }
+    // Laser Pattern Drawing
+    function drawLaserPattern() {
+        // Subtle trail effect
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    function animate() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        for (let i = 0; i < particles.length; i++) {
-            particles[i].update();
-            particles[i].draw();
-            if (particles[i].alpha <= 0) {
-                particles.splice(i, 1);
-                i--;
+        if (isMoving) {
+            hue += 2;
+            const lines = 12;
+            const time = Date.now() * 0.002;
+
+            ctx.lineWidth = 2;
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = `hsl(${hue}, 100%, 50%)`;
+            ctx.strokeStyle = `hsl(${hue}, 100%, 60%)`;
+
+            for (let i = 0; i < lines; i++) {
+                ctx.beginPath();
+                ctx.moveTo(pointerX, pointerY);
+                
+                // Mathematical laser patterns
+                const angle = (i / lines) * Math.PI * 2 + time;
+                const length = 200 + Math.sin(time + i) * 100;
+                
+                const tx = pointerX + Math.cos(angle) * length;
+                const ty = pointerY + Math.sin(angle) * length;
+
+                ctx.lineTo(tx, ty);
+                // Add cross-patterns
+                ctx.lineTo(tx + Math.sin(time) * 50, ty + Math.cos(time) * 50);
+                
+                ctx.stroke();
             }
         }
-        requestAnimationFrame(animate);
+        requestAnimationFrame(drawLaserPattern);
     }
 
+    window.addEventListener('resize', resize);
+    resize();
     startCamera();
-    animate();
+    drawLaserPattern();
 </script>
 </body>
 </html>
