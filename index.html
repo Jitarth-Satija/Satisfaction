@@ -34,7 +34,7 @@
         let scene, camera, renderer, particles, geometry;
         let particleCount = 15000;
         let currentShape = 0;
-        const shapes = ['fireworks', 'heart', 'flower', 'saturn'];
+        const shapes = ['fireworks', 'heart', 'flower', 'spiral', 'wave', 'galaxy', 'saturn'];
 
         // Init Three.js
         function initThree() {
@@ -87,6 +87,22 @@
                     x = radius * Math.cos(t);
                     y = radius * Math.sin(t);
                     z = (Math.random() - 0.5) * strength;
+                } else if (type === 'spiral') {
+                    const radius = 0.1 * i;
+                    x = radius * Math.cos(t * 5);
+                    y = radius * Math.sin(t * 5);
+                    z = (i / particleCount) * 5;
+                } else if (type === 'wave') {
+                    x = (i / particleCount) * 5 - 2.5;
+                    y = Math.sin(x * 5 + performance.now() * 0.002);
+                    z = Math.cos(x * 5);
+                } else if (type === 'galaxy') {
+                    const arms = 3;
+                    const angle = t * arms;
+                    const radius = Math.sqrt(i) * 0.1;
+                    x = Math.cos(angle) * radius;
+                    y = Math.sin(angle) * radius;
+                    z = (Math.random() - 0.5) * 0.5;
                 } else if (type === 'saturn') {
                     if (i < particleCount * 0.6) { // Planet
                         const phi = Math.acos(-1 + (2 * i) / (particleCount * 0.6));
