@@ -1,155 +1,140 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Laser Camera App</title>
-    <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
-        video {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%) scale(1);
-            min-width: 100%;
-            min-height: 100%;
-            z-index: 1;
-            filter: brightness(0.7) contrast(1.2);
-        }
-        canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
-            z-index: 2;
-            pointer-events: none;
-            mix-blend-mode: screen;
-        }
-        #ui {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            z-index: 3;
-            color: #0ff;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            font-size: 12px;
-            background: rgba(0,0,0,0.4);
-            padding: 8px;
-            border-left: 3px solid #0ff;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <title>Gesture Fireworks</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: black;
+    }
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    video {
+      display: none;
+    }
+  </style>
 </head>
 <body>
 
-<video id="camera" autoplay playsinline></video>
-<canvas id="laserCanvas"></canvas>
-<div id="ui">Laser System Active | Move Hand to Pattern | Pinch to Zoom</div>
+<video id="video" autoplay playsinline></video>
+<canvas id="canvas"></canvas>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
 <script>
-    const video = document.getElementById('camera');
-    const canvas = document.getElementById('laserCanvas');
-    const ctx = canvas.getContext('2d');
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
 
-    let zoomLevel = 1;
-    let initialDist = 0;
-    let pointerX = 0;
-    let pointerY = 0;
-    let hue = 0;
-    let isMoving = false;
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
 
-    async function startCamera() {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } 
-            });
-            video.srcObject = stream;
-        } catch (err) {
-            document.getElementById('ui').innerText = "System Error: Camera Access Denied";
-        }
+let zoom = 1;
+let particles = [];
+
+// FIREWORK PARTICLE
+class Particle {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    this.angle = Math.random() * 2 * Math.PI;
+    this.speed = Math.random() * 5 + 2;
+    this.life = 100;
+  }
+
+  update() {
+    this.x += Math.cos(this.angle) * this.speed * zoom;
+    this.y += Math.sin(this.angle) * this.speed * zoom;
+    this.life--;
+  }
+
+  draw() {
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, 2 * zoom, 0, Math.PI * 2);
+    ctx.fillStyle = `hsl(${Math.random()*360},100%,60%)`;
+    ctx.fill();
+  }
+}
+
+// HAND TRACKING
+const hands = new Hands({
+  locateFile: (file) =>
+    `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+});
+
+hands.setOptions({
+  maxNumHands: 1,
+  minDetectionConfidence: 0.7,
+  minTrackingConfidence: 0.7
+});
+
+hands.onResults(results => {
+  if (results.multiHandLandmarks.length > 0) {
+    const lm = results.multiHandLandmarks[0];
+
+    const thumb = lm[4];
+    const index = lm[8];
+
+    // Distance (pinch detection)
+    const dx = thumb.x - index.x;
+    const dy = thumb.y - index.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    // Pinch logic
+    if (distance < 0.05) {
+      zoom *= 0.95; // pinch → zoom out
+    } else {
+      zoom *= 1.05; // open → zoom in
     }
 
-    function resize() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+    zoom = Math.max(0.5, Math.min(3, zoom));
+
+    // Hand position
+    const x = index.x * canvas.width;
+    const y = index.y * canvas.height;
+
+    // Create fireworks at hand position
+    for (let i = 0; i < 10; i++) {
+      particles.push(new Particle(x, y));
     }
+  }
+});
 
-    // Input Handling
-    window.addEventListener('touchstart', (e) => {
-        if (e.touches.length === 2) {
-            initialDist = Math.hypot(
-                e.touches[0].pageX - e.touches[1].pageX,
-                e.touches[0].pageY - e.touches[1].pageY
-            );
-        } else {
-            isMoving = true;
-            updatePointer(e.touches[0]);
-        }
-    });
+// CAMERA
+const camera = new Camera(video, {
+  onFrame: async () => {
+    await hands.send({ image: video });
+  },
+  width: 640,
+  height: 480
+});
+camera.start();
 
-    window.addEventListener('touchmove', (e) => {
-        if (e.touches.length === 2) {
-            // Zoom Logic
-            const currentDist = Math.hypot(
-                e.touches[0].pageX - e.touches[1].pageX,
-                e.touches[0].pageY - e.touches[1].pageY
-            );
-            const diff = currentDist / initialDist;
-            zoomLevel = Math.max(1, Math.min(8, zoomLevel * (diff > 1 ? 1.05 : 0.95)));
-            video.style.transform = `translate(-50%, -50%) scale(${zoomLevel})`;
-            initialDist = currentDist;
-        } else {
-            updatePointer(e.touches[0]);
-        }
-    });
+// DRAW LOOP
+function animate() {
+  ctx.fillStyle = "rgba(0,0,0,0.2)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    window.addEventListener('touchend', () => { isMoving = false; });
+  particles.forEach((p, i) => {
+    p.update();
+    p.draw();
 
-    function updatePointer(touch) {
-        pointerX = touch.pageX;
-        pointerY = touch.pageY;
+    if (p.life <= 0) {
+      particles.splice(i, 1);
     }
+  });
 
-    // Laser Pattern Drawing
-    function drawLaserPattern() {
-        // Subtle trail effect
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+  requestAnimationFrame(animate);
+}
 
-        if (isMoving) {
-            hue += 2;
-            const lines = 12;
-            const time = Date.now() * 0.002;
-
-            ctx.lineWidth = 2;
-            ctx.shadowBlur = 15;
-            ctx.shadowColor = `hsl(${hue}, 100%, 50%)`;
-            ctx.strokeStyle = `hsl(${hue}, 100%, 60%)`;
-
-            for (let i = 0; i < lines; i++) {
-                ctx.beginPath();
-                ctx.moveTo(pointerX, pointerY);
-                
-                // Mathematical laser patterns
-                const angle = (i / lines) * Math.PI * 2 + time;
-                const length = 200 + Math.sin(time + i) * 100;
-                
-                const tx = pointerX + Math.cos(angle) * length;
-                const ty = pointerY + Math.sin(angle) * length;
-
-                ctx.lineTo(tx, ty);
-                // Add cross-patterns
-                ctx.lineTo(tx + Math.sin(time) * 50, ty + Math.cos(time) * 50);
-                
-                ctx.stroke();
-            }
-        }
-        requestAnimationFrame(drawLaserPattern);
-    }
-
-    window.addEventListener('resize', resize);
-    resize();
-    startCamera();
-    drawLaserPattern();
+animate();
 </script>
+
 </body>
 </html>
