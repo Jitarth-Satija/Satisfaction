@@ -1,154 +1,147 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Photorealistic Gesture Universe</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Camera Firework Zoom</title>
     <style>
-        body { margin: 0; background: #000; color: white; overflow: hidden; font-family: sans-serif; }
-        #ui { position: absolute; top: 20px; left: 20px; z-index: 10; background: rgba(0,0,0,0.8); padding: 15px; border-radius: 10px; border: 1px solid #444; }
-        button { background: #00ffcc; border: none; padding: 10px 20px; cursor: pointer; font-weight: bold; border-radius: 5px; }
-        #status { color: #00ffcc; margin-bottom: 10px; }
-        video { display: none; }
+        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
+        video {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(1);
+            min-width: 100%;
+            min-height: 100%;
+            z-index: 1;
+            transition: transform 0.1s ease-out;
+        }
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 2;
+            pointer-events: none;
+        }
+        #ui {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 3;
+            color: white;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 5px;
+        }
     </style>
 </head>
 <body>
 
-    <div id="ui">
-        <div id="status">Status: Waiting for User...</div>
-        <button id="startBtn">ENABLE CAMERA & START</button>
-        <p style="font-size: 12px; opacity: 0.7;">Pinch fingers to Zoom | Move hand to Rotate</p>
-    </div>
+<video id="camera" autoplay playsinline></video>
+<canvas id="fireworks"></canvas>
+<div id="ui">Pinch to Zoom | Tap for Fireworks</div>
 
-    <script type="importmap">
-        { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
-    </script>
+<script>
+    const video = document.getElementById('camera');
+    const canvas = document.getElementById('fireworks');
+    const ctx = canvas.getContext('2d');
 
-    <script type="module">
-        import * as THREE from 'three';
+    let zoomLevel = 1;
+    let initialDist = 0;
 
-        let scene, camera, renderer, earth, saturn, rings, stars;
-        let handDist = 1;
-
-        // --- 1. Scene Setup ---
-        function initScene() {
-            scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 5000);
-            renderer = new THREE.WebGLRenderer({ antialias: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(window.devicePixelRatio);
-            document.body.appendChild(renderer.domElement);
-
-            // Lighting
-            const sunLight = new THREE.DirectionalLight(0xffffff, 2);
-            sunLight.position.set(5, 3, 5);
-            scene.add(sunLight);
-            scene.add(new THREE.AmbientLight(0x404040, 1));
-
-            // Stars Background
-            const starGeo = new THREE.BufferGeometry();
-            const starPos = new Float32Array(30000);
-            for(let i=0; i<30000; i++) starPos[i] = (Math.random() - 0.5) * 2000;
-            starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
-            stars = new THREE.Points(starGeo, new THREE.PointsMaterial({color: 0xffffff, size: 0.7}));
-            scene.add(stars);
-
-            // Real Earth
-            const texLoader = new THREE.TextureLoader();
-            const earthMat = new THREE.MeshPhongMaterial({
-                map: texLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_atmos_2048.jpg'),
-                specularMap: texLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_specular_2048.jpg'),
-                shininess: 10
-            });
-            earth = new THREE.Mesh(new THREE.SphereGeometry(2, 64, 64), earthMat);
-            scene.add(earth);
-
-            // Real Saturn with Rings
-            const saturnMat = new THREE.MeshPhongMaterial({ color: 0xe2bf7d });
-            saturn = new THREE.Mesh(new THREE.SphereGeometry(1.2, 32, 32), saturnMat);
-            saturn.position.set(8, 0, -5);
-            scene.add(saturn);
-
-            // Rings
-            const ringGeo = new THREE.RingGeometry(1.5, 2.5, 64);
-            const ringMat = new THREE.MeshBasicMaterial({ 
-                color: 0xc2a26a, side: THREE.DoubleSide, transparent: true, opacity: 0.6 
-            });
-            rings = new THREE.Mesh(ringGeo, ringMat);
-            rings.rotation.x = Math.PI / 2.2;
-            saturn.add(rings);
-
-            camera.position.z = 10;
+    // Initialize Camera
+    async function startCamera() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            video.srcObject = stream;
+        } catch (err) {
+            console.error("Camera access denied", err);
+            document.getElementById('ui').innerText = "Camera Access Denied";
         }
+    }
 
-        // --- 2. Camera & Tracking Setup ---
-        async function setupTracking() {
-            const status = document.getElementById('status');
+    // Handle Resize
+    function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // Pinch to Zoom Logic
+    window.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 2) {
+            initialDist = Math.hypot(
+                e.touches[0].pageX - e.touches[1].pageX,
+                e.touches[0].pageY - e.touches[1].pageY
+            );
+        } else if (e.touches.length === 1) {
+            createFirework(e.touches[0].pageX, e.touches[0].pageY);
+        }
+    });
+
+    window.addEventListener('touchmove', (e) => {
+        if (e.touches.length === 2) {
+            const currentDist = Math.hypot(
+                e.touches[0].pageX - e.touches[1].pageX,
+                e.touches[0].pageY - e.touches[1].pageY
+            );
             
-            // Dynamically load MediaPipe
-            await loadScript("https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js");
-            await loadScript("https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js");
-
-            const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-            hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.6 });
-
-            hands.onResults((res) => {
-                if (res.multiHandLandmarks.length > 0) {
-                    status.innerText = "Status: Tracking Active!";
-                    const h = res.multiHandLandmarks[0];
-                    
-                    // Zoom Logic (Thumb to Index distance)
-                    const dx = h[4].x - h[8].x;
-                    const dy = h[4].y - h[8].y;
-                    const dist = Math.sqrt(dx*dx + dy*dy);
-                    
-                    camera.position.z = THREE.MathUtils.lerp(camera.position.z, 15 - (dist * 25), 0.1);
-                    
-                    // Rotate Earth with hand move
-                    earth.rotation.y += (h[8].x - 0.5) * 0.1;
-                    earth.rotation.x += (h[8].y - 0.5) * 0.1;
-                } else {
-                    status.innerText = "Status: Show your hand to camera";
-                }
-            });
-
-            const video = document.createElement('video');
-            const cam = new Camera(video, {
-                onFrame: async () => { await hands.send({image: video}); },
-                width: 640, height: 480
-            });
-            cam.start();
+            const diff = currentDist / initialDist;
+            zoomLevel = Math.max(1, Math.min(5, zoomLevel * diff));
+            video.style.transform = `translate(-50%, -50%) scale(${zoomLevel})`;
+            initialDist = currentDist;
         }
+    });
 
-        function loadScript(url) {
-            return new Promise((resolve) => {
-                const s = document.createElement('script');
-                s.src = url;
-                s.onload = resolve;
-                document.head.appendChild(s);
-            });
+    // Firework Logic
+    const particles = [];
+    class Particle {
+        constructor(x, y) {
+            this.x = x;
+            this.y = y;
+            this.size = Math.random() * 3 + 1;
+            this.speedX = (Math.random() - 0.5) * 10;
+            this.speedY = (Math.random() - 0.5) * 10;
+            this.color = `hsl(${Math.random() * 360}, 100%, 50%)`;
+            this.alpha = 1;
         }
-
-        function animate() {
-            requestAnimationFrame(animate);
-            if(earth) earth.rotation.y += 0.001;
-            if(saturn) saturn.rotation.y += 0.002;
-            renderer.render(scene, camera);
+        update() {
+            this.x += this.speedX;
+            this.y += this.speedY;
+            this.alpha -= 0.02;
         }
+        draw() {
+            ctx.globalAlpha = this.alpha;
+            ctx.fillStyle = this.color;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
 
-        // Initialize
-        initScene();
-        animate();
+    function createFirework(x, y) {
+        for (let i = 0; i < 30; i++) {
+            particles.push(new Particle(x, y));
+        }
+    }
 
-        document.getElementById('startBtn').addEventListener('click', () => {
-            document.getElementById('startBtn').style.display = 'none';
-            document.getElementById('status').innerText = "Status: Initializing Camera...";
-            setupTracking();
-        });
+    function animate() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        for (let i = 0; i < particles.length; i++) {
+            particles[i].update();
+            particles[i].draw();
+            if (particles[i].alpha <= 0) {
+                particles.splice(i, 1);
+                i--;
+            }
+        }
+        requestAnimationFrame(animate);
+    }
 
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
-    </script>
+    startCamera();
+    animate();
+</script>
 </body>
 </html>
