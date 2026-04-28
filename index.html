@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Solar System</title>
+  <style>
+    body { margin:0; overflow:hidden; background:black; }
+    canvas { display:block; }
+    .label {
+      position:absolute;
+      color:white;
+      font-size:13px;
+      font-family:Arial;
+      pointer-events:none;
+    }
+  </style>
+</head>
+<body>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+
+<script>
+let scene = new THREE.Scene();
+let camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 2000);
+camera.position.set(0,10,60);
+
+let renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+// LIGHT
+let light = new THREE.PointLight(0xffffff,2);
+scene.add(light);
+
+// STARS
+let starGeo = new THREE.BufferGeometry();
+let starVerts = [];
+for(let i=0;i<10000;i++){
+  starVerts.push(
+    (Math.random()-0.5)*3000,
+    (Math.random()-0.5)*3000,
+    (Math.random()-0.5)*3000
+  );
+}
+starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVerts,3));
+scene.add(new THREE.Points(starGeo,new THREE.PointsMaterial({size:1})));
+
+// TEXTURE LOADER
+let loader = new THREE.TextureLoader();
+
+// PLANET FUNCTION
+function createPlanet(name,size,dist,texture,speed){
+  let geo = new THREE.SphereGeometry(size,64,64);
+  let mat = new THREE.MeshStandardMaterial({
+    map: loader.load(texture)
+  });
+  let mesh = new THREE.Mesh(geo,mat);
+  scene.add(mesh);
+
+  let label = document.createElement("div");
+  label.className="label";
+  label.innerText=name;
+  document.body.appendChild(label);
+
+  return {mesh,size,dist,angle:Math.random()*6.28,speed,label};
+}
+
+// SUN
+let sun = createPlanet("Sun",5,0,
+"https://threejs.org/examples/textures/planets/sun.jpg",0);
+
+// PLANETS
+let planets = [
+createPlanet("Mercury",0.6,10,"https://threejs.org/examples/textures/planets/mercury.jpg",0.02),
+createPlanet("Venus",0.9,14,"https://threejs.org/examples/textures/planets/venus.jpg",0.015),
+createPlanet("Earth",1,18,"https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg",0.01),
+createPlanet("Mars",0.8,22,"https://threejs.org/examples/textures/planets/mars_1k_color.jpg",0.008),
+createPlanet("Jupiter",2.5,30,"https://threejs.org/examples/textures/planets/jupiter.jpg",0.006),
+createPlanet("Saturn",2.2,40,"https://threejs.org/examples/textures/planets/saturn.jpg",0.005),
+createPlanet("Uranus",1.5,50,"https://threejs.org/examples/textures/planets/uranus.jpg",0.004),
+createPlanet("Neptune",1.5,60,"https://threejs.org/examples/textures/planets/neptune.jpg",0.003)
+];
+
+// SATURN RING
+let ringGeo = new THREE.RingGeometry(3,4.5,64);
+let ringMat = new THREE.MeshBasicMaterial({
+  map: loader.load("https://threejs.org/examples/textures/planets/saturnringcolor.jpg"),
+  side: THREE.DoubleSide,
+  transparent:true
+});
+let ring = new THREE.Mesh(ringGeo,ringMat);
+planets[5].mesh.add(ring);
+ring.rotation.x = Math.PI/2;
+
+// CONTROLS (MOUSE)
+let isDragging=false;
+let prevX=0;
+
+document.addEventListener("mousedown",(e)=>{
+  isDragging=true;
+  prevX=e.clientX;
+});
+
+document.addEventListener("mouseup",()=>isDragging=false);
+
+document.addEventListener("mousemove",(e)=>{
+  if(isDragging){
+    let dx = e.clientX - prevX;
+    camera.rotation.y -= dx * 0.005;
+    prevX = e.clientX;
+  }
+});
+
+document.addEventListener("wheel",(e)=>{
+  camera.position.z += e.deltaY * 0.05;
+  camera.position.z = Math.max(20, Math.min(150, camera.position.z));
+});
+
+// ANIMATION
+function animate(){
+  requestAnimationFrame(animate);
+
+  planets.forEach(p=>{
+    p.angle += p.speed;
+    p.mesh.position.x = Math.cos(p.angle)*p.dist;
+    p.mesh.position.z = Math.sin(p.angle)*p.dist;
+
+    let v = p.mesh.position.clone().project(camera);
+    p.label.style.left = (v.x*0.5+0.5)*innerWidth+"px";
+    p.label.style.top = (-v.y*0.5+0.5)*innerHeight+"px";
+  });
+
+  renderer.render(scene,camera);
+}
+animate();
+
+</script>
+
+</body>
+</html>
