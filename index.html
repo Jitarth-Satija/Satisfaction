@@ -34,6 +34,8 @@
             let scene, camera, renderer, particles, geometry;
             let particleCount = 15000;
             let currentShape = 0;
+            let lastX = null;
+            let swipeCooldown = 0;
             let lastPalmState = false;
             const shapes = ['fireworks', 'heart', 'flower', 'spiral', 'wave', 'saturn'];    
             // Init Three.js
@@ -138,23 +140,42 @@
             hands.onResults((results) => {
                 if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                     const landmarks = results.multiHandLandmarks[0];
+                    const x = landmarks[8].x; // index finger tip X
                     
                     // Pinch detection (Thumb tip to Index tip)
-                    const dx = landmarks[4].x - landmarks[8].x;
-                    const dy = landmarks[4].y - landmarks[8].y;
-                    const distance = Math.sqrt(dx*dx + dy*dy);
+                    const pinchDx = landmarks[4].x - landmarks[8].x;
+                    const pinchDy = landmarks[4].y - landmarks[8].y;
+                    const distance = Math.sqrt(pinchDx*pinchDx + pinchDy*pinchDy);
                     
                     // Interaction
                     const strength = distance < 0.05 ? 5 : 1; 
                     
                     // Palm Open to change shape
-                    const isPalmOpen = landmarks[12].y < landmarks[9].y;
+
+                    // 👉 swipe detection
+                    const isTilted = Math.abs(landmarks[5].x - landmarks[17].x) > 0.2;
+                    const isPinching = distance < 0.05;
                     
-                    if (isPalmOpen && !lastPalmState) {
-                        currentShape = (currentShape + 1) % shapes.length;
+                    if (lastX !== null && isTilted && !isPinching) {
+                        const moveX = x - lastX;
+                    
+                        const now = Date.now();
+                    
+                        if (now - swipeCooldown > 700) {
+                    
+                            if (moveX > 0.08) {
+                                currentShape = (currentShape + 1) % shapes.length;
+                                swipeCooldown = now;
+                            }
+                    
+                            else if (moveX < -0.08) {
+                                currentShape = (currentShape - 1 + shapes.length) % shapes.length;
+                                swipeCooldown = now;
+                            }
+                        }
                     }
                     
-                    lastPalmState = isPalmOpen;
+                    lastX = x;
     
                     updateShape(shapes[currentShape], strength);
                     
@@ -169,6 +190,7 @@
                 } else {
                     updateShape('fireworks', 0.5);
                     lastPalmState = false;
+                    lastX = null; // 👈 add this
                 }
             });
     
