@@ -3,23 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Gesture Particle System</title>
+    <title>Jitarth 3D Particle Gesture</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; }
         canvas { display: block; }
-        #info {
-            position: absolute; top: 10px; left: 10px; color: white;
-            pointer-events: none; text-shadow: 1px 1px 2px black;
+        #overlay {
+            position: absolute; top: 20px; left: 20px; color: #00ffff;
+            pointer-events: none; background: rgba(0,0,0,0.7); padding: 15px;
+            border: 1px solid #00ffff; border-radius: 5px;
         }
-        #video-container { position: absolute; bottom: 10px; right: 10px; width: 160px; height: 120px; border: 2px solid #444; }
+        #video-container { position: absolute; bottom: 20px; right: 20px; width: 180px; height: 135px; border: 2px solid #00ffff; border-radius: 10px; overflow: hidden; }
         video { transform: scaleX(-1); width: 100%; height: 100%; object-fit: cover; }
     </style>
 </head>
 <body>
 
-    <div id="info">
-        Jitarth Satija - Gesture Control System<br>
-        Pinch: Expand | Open Palm: Change Shape
+    <div id="overlay">
+        SYSTEM: JITARTH SATIJA<br>
+        STATUS: ACTIVE<br>
+        <span style="color: white; font-size: 0.9em;">- Spread Fingers: ZOOM / EXPAND<br>- Pinch Fingers: UNZOOM / CONTRACT</span>
     </div>
     <div id="video-container">
         <video id="input_video"></video>
@@ -36,14 +38,14 @@
         let currentShape = 0;
         const shapes = ['fireworks', 'heart', 'flower', 'saturn'];
 
-        // Init Three.js
         function initThree() {
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.z = 5;
+            camera.position.z = 6;
 
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
             document.body.appendChild(renderer.domElement);
 
             geometry = new THREE.BufferGeometry();
@@ -59,61 +61,58 @@
             geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
             const material = new THREE.PointsMaterial({
-                size: 0.05,
+                size: 0.04,
                 vertexColors: true,
                 transparent: true,
-                blending: THREE.AdditiveBlending
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
             });
 
             particles = new THREE.Points(geometry, material);
             scene.add(particles);
         }
 
-        // Mathematical Shape Generators
         function updateShape(type, strength = 1) {
             const positions = geometry.attributes.position.array;
             for (let i = 0; i < particleCount; i++) {
                 let x, y, z;
-                const t = i / particleCount * Math.PI * 2;
-                const r = 2 + Math.random() * 0.5 * strength;
+                const t = (i / particleCount) * Math.PI * 2;
 
                 if (type === 'heart') {
-                    x = 16 * Math.pow(Math.sin(t), 3) / 10;
-                    y = (13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t)) / 10;
-                    z = (Math.random() - 0.5) * strength;
+                    x = (16 * Math.pow(Math.sin(t), 3) / 10) * strength;
+                    y = ((13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t)) / 10) * strength;
+                    z = (Math.random() - 0.5) * 0.2 * strength;
                 } else if (type === 'flower') {
-                    const petals = 5;
-                    const radius = 2 * Math.cos(petals * t);
-                    x = radius * Math.cos(t);
-                    y = radius * Math.sin(t);
-                    z = (Math.random() - 0.5) * strength;
+                    const r = (2.5 * Math.cos(6 * t)) * strength;
+                    x = r * Math.cos(t);
+                    y = r * Math.sin(t);
+                    z = (Math.random() - 0.5) * 0.5;
                 } else if (type === 'saturn') {
-                    if (i < particleCount * 0.6) { // Planet
+                    if (i < particleCount * 0.6) {
                         const phi = Math.acos(-1 + (2 * i) / (particleCount * 0.6));
                         const theta = Math.sqrt(particleCount * 0.6 * Math.PI) * phi;
-                        x = Math.cos(theta) * Math.sin(phi) * 1.5;
-                        y = Math.sin(theta) * Math.sin(phi) * 1.5;
-                        z = Math.cos(phi) * 1.5;
-                    } else { // Rings
-                        const ringR = 2.5 + Math.random() * 1.5;
-                        x = Math.cos(t * 50) * ringR;
-                        y = Math.sin(t * 50) * ringR * 0.3;
-                        z = Math.sin(t * 50) * ringR * 0.5;
+                        x = Math.cos(theta) * Math.sin(phi) * 1.5 * strength;
+                        y = Math.sin(theta) * Math.sin(phi) * 1.5 * strength;
+                        z = Math.cos(phi) * 1.5 * strength;
+                    } else {
+                        const ringR = (3 + Math.random() * 1.5) * strength;
+                        x = Math.cos(t * 60) * ringR;
+                        y = Math.sin(t * 60) * ringR * 0.2;
+                        z = Math.sin(t * 60) * ringR * 0.4;
                     }
-                } else { // Fireworks / Default
+                } else {
                     x = (Math.random() - 0.5) * 10 * strength;
                     y = (Math.random() - 0.5) * 10 * strength;
                     z = (Math.random() - 0.5) * 10 * strength;
                 }
 
-                positions[i * 3] += (x - positions[i * 3]) * 0.1;
-                positions[i * 3 + 1] += (y - positions[i * 3 + 1]) * 0.1;
-                positions[i * 3 + 2] += (z - positions[i * 3 + 2]) * 0.1;
+                positions[i * 3] += (x - positions[i * 3]) * 0.12;
+                positions[i * 3 + 1] += (y - positions[i * 3 + 1]) * 0.12;
+                positions[i * 3 + 2] += (z - positions[i * 3 + 2]) * 0.12;
             }
             geometry.attributes.position.needsUpdate = true;
         }
 
-        // Hand Tracking Logic
         const hands = new Hands({
             locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
         });
@@ -129,32 +128,32 @@
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 const landmarks = results.multiHandLandmarks[0];
                 
-                // Pinch detection (Thumb tip to Index tip)
                 const dx = landmarks[4].x - landmarks[8].x;
                 const dy = landmarks[4].y - landmarks[8].y;
                 const distance = Math.sqrt(dx*dx + dy*dy);
                 
-                // Interaction
-                const strength = distance < 0.05 ? 5 : 1; 
-                
-                // Palm Open to change shape
-                const isPalmOpen = landmarks[12].y < landmarks[9].y;
-                if (isPalmOpen && Math.random() > 0.98) {
+                // CORRECTED LOGIC:
+                // distance badha (Unpinch) -> strength badhegi (Zoom/Expand)
+                // distance kam (Pinch) -> strength kam hogi (Unzoom/Contract)
+                let strength = distance * 12; 
+                if (strength < 0.4) strength = 0.2; // Minimum size during pinch
+
+                // Change shape with palm open gesture
+                const isPalmOpen = landmarks[12].y < landmarks[9].y && landmarks[8].y < landmarks[5].y;
+                if (isPalmOpen && Math.random() > 0.99) {
                     currentShape = (currentShape + 1) % shapes.length;
                 }
 
                 updateShape(shapes[currentShape], strength);
                 
-                // Dynamic Color change
+                // Dynamic colors based on hand movement
                 const colors = geometry.attributes.color.array;
                 for(let i=0; i<colors.length; i+=3) {
-                    colors[i] = landmarks[8].x; // Red based on hand X
-                    colors[i+1] = landmarks[8].y; // Green based on hand Y
-                    colors[i+2] = 1 - landmarks[8].x;
+                    colors[i] = landmarks[4].x; 
+                    colors[i+1] = 1 - landmarks[4].y;
+                    colors[i+2] = distance * 2;
                 }
                 geometry.attributes.color.needsUpdate = true;
-            } else {
-                updateShape('fireworks', 0.5);
             }
         });
 
@@ -170,6 +169,7 @@
         function animate() {
             requestAnimationFrame(animate);
             particles.rotation.y += 0.002;
+            particles.rotation.x += 0.001;
             renderer.render(scene, camera);
         }
 
